@@ -1,9 +1,6 @@
-﻿using System;
-using System.Collections;
-using System.Collections.Generic;
-using UnityEngine;
+﻿using UnityEngine;
 
-[Serializable]
+[System.Serializable]
 public class DiscordPresence
 {
 	[Header("Basic Details")]
@@ -103,8 +100,9 @@ public class DiscordPresence
 
 			if (presence.HasTimestamps())
 			{
-				this.startTime = presence.Timestamps.Start.HasValue ? new DiscordTimestamp(presence.Timestamps.Start.Value) : DiscordTimestamp.Invalid;
-				this.endTime = presence.Timestamps.End.HasValue ? new DiscordTimestamp(presence.Timestamps.End.Value) : DiscordTimestamp.Invalid;
+                //This could probably be made simpler
+				this.startTime = presence.Timestamps.Start.HasValue ? new DiscordTimestamp((long) presence.Timestamps.StartUnixMilliseconds.Value) : DiscordTimestamp.Invalid;
+				this.endTime = presence.Timestamps.End.HasValue ? new DiscordTimestamp((long) presence.Timestamps.EndUnixMilliseconds.Value) : DiscordTimestamp.Invalid;
 			}
 		}
 		else
@@ -134,7 +132,7 @@ public class DiscordPresence
 		presence.Party		= !this.party.IsEmpty() ? this.party.ToRichParty() : null;
 		presence.Secrets	= !this.secrets.IsEmpty() ? this.secrets.ToRichSecrets() : null;
 
-		if (!smallAsset.IsEmpty() || !largeAsset.IsEmpty())
+		if ((smallAsset != null && !smallAsset.IsEmpty()) || (largeAsset != null && !largeAsset.IsEmpty()))
 		{
 			presence.Assets = new DiscordRPC.Assets()
 			{

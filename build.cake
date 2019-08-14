@@ -4,24 +4,30 @@
 #addin nuget:?package=Cake.VersionReader
 
 // Adjustable Variables
-var projectName = "Discord RPC";
+var projectName = "DiscordRPC";
 
 // Arguments
 var target = Argument ("target", "Default");
 var buildType = Argument<string>("buildType", "Release");
 var buildCounter = Argument<int>("buildCounter", 0);
+var buildTag = Argument<string>("buildTag", "v1.0");
+var signCertificate = Argument<string>("signCertificate", "certificate.pfx");
+var signPassword = Argument<string>("signPassword", "");
 
 // Project Variables
+var asm = string.Format("./{0}/Properties/AssemblyInfo.cs", projectName);
 var sln = string.Format("./{0}/{0}.sln", projectName);
 var releaseFolder = string.Format("./{0}/bin/{1}", projectName, buildType);
-var releaseDll = string.Format("/{0}.dll", projectName);
+var releaseDll = "/DiscordRPC.dll";
 var nuspecFile = string.Format("./{0}/{0}.nuspec", projectName);
 
 // Execution Variables
-var version = "0.0.0";
-var ciVersion = "0.0.0-CI00000";
+var major_version = buildTag.Trim('v');
+var version = major_version + "." + buildCounter.ToString() + ".0";
+var ciVersion = major_version + ".0-CI00000";
 var runningOnTeamCity = false;
 var runningOnAppVeyor = false;
+
 
 // Find out if we are running on a Build Server
 Task ("DiscoverBuildDetails")
@@ -39,16 +45,32 @@ Task ("OutputVariables")
 	{
 		Information("BuildType: " + buildType);
 		Information("BuildCounter: " + buildCounter);
+		Information("BuildTag: " + buildTag);
+		Information("MajorVersion: " + major_version);
+		Information("BuildVersion: " + version);
+		Information("CIVersion: " + ciVersion);
 	});
+
+Task("SetVersion")
+   .Does(() => {
+	   //version = major_version + "." + buildCounter.ToString() + ".0";
+	   Information("Version: " + version);
+       ReplaceRegexInFiles(asm,  "(?<=AssemblyVersion\\(\")(.+?)(?=\"\\))", version);
+       ReplaceRegexInFiles(asm,  "(?<=Version\\(\")(.+?)(?=\"\\))", version);
+   });
 
 // Builds the code
 Task ("Build")
 	.Does (() => {
+
+		//Build 64bit versions of the solution
 		MSBuild (sln, new MSBuildSettings 
-						{
-							Verbosity = Verbosity.Quiet,
-							Configuration = buildType
-						});
+					{
+						Verbosity = Verbosity.Quiet,
+						Configuration = buildType
+					}.WithProperty("build", buildCounter.ToString()));
+					
+						
 		var file = MakeAbsolute(Directory(releaseFolder)) + releaseDll;
 		version = GetVersionNumber(file);
 		ciVersion = GetVersionNumberWithContinuesIntegrationNumberAppended(file, buildCounter);
@@ -94,17 +116,48 @@ Task ("Push")
 			ApiKey = apiKey
 		});
 	});
+Task ("Sign")
+    .IsDependentOn("Build")
+    .Does(() => {
+        if (!String.IsNullOrEmpty(signPassword))
+        {
+		    Information("Signing Assembly");
+            var file = MakeAbsolute(Directory(releaseFolder)) + releaseDll;
+            var asmb = new FilePath(file);
+            Sign(asmb, new SignToolSignSettings {
+                Description = "Signed by Lachee during a automated build",
+                TimeStampUri = new Uri("http://timestamp.digicert.com"),
+                CertPath = signCertificate,
+                Password = signPassword
+            });
+        }
+        else
+        {
+		    Information("Skipping Signing");
+        }
+    });
 
 Task ("Default")
 	.IsDependentOn ("OutputVariables")
 	.IsDependentOn ("DiscoverBuildDetails")
 	.IsDependentOn ("NugetRestore")
+	.IsDependentOn ("SetVersion")
 	.IsDependentOn ("Build");
 Task ("NugetBuild")
 	.IsDependentOn ("OutputVariables")
 	.IsDependentOn ("DiscoverBuildDetails")
 	.IsDependentOn ("NugetRestore")
+	.IsDependentOn ("SetVersion")
 	.IsDependentOn ("Build")
+	.IsDependentOn ("Sign")
+    .IsDependentOn ("Nuget");
+Task ("NugetBuildPush")
+	.IsDependentOn ("OutputVariables")
+	.IsDependentOn ("DiscoverBuildDetails")
+	.IsDependentOn ("NugetRestore")
+	.IsDependentOn ("SetVersion")
+	.IsDependentOn ("Build")
+	.IsDependentOn ("Sign")
     .IsDependentOn ("Nuget")
     .IsDependentOn ("Push");
     
@@ -113,10 +166,10 @@ RunTarget (target);
 // Code to start a TeamCity log block
 public void StartBlock(string blockName)
 {
-		if(runningOnTeamCity)
-		{
-			TeamCity.WriteStartBlock(blockName);
-		}
+	if(runningOnTeamCity)
+	{
+		TeamCity.WriteStartBlock(blockName);
+	}
 }
 
 // Code to start a TeamCity build block
